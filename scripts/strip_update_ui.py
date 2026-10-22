@@ -66,16 +66,20 @@ def strip(lines: list[str]) -> list[str]:
             del lines[method_index - 1]
 
     # 2. 「更新」设置块
+    #    注意：必须向下找块自身的 `{` —— `ComponentList updatePaneList = ...;`
+    #    的**下一行**才是该块的开始；若向上找会命中「外层设置容器块」的 `{`，
+    #    从而把语言、日志等后续设置块全部误删（已发生过线上事故）。
     block_marker = find_line(lines, BLOCK_MARKER)
     if block_marker is not None:
-        open_index = block_marker
-        while open_index > 0 and lines[open_index].strip() != "{":
-            open_index -= 1
-        if lines[open_index].strip() != "{":
-            raise StripError("未找到「更新」块的起始 {")
+        open_index = block_marker + 1
+        while open_index < len(lines) and lines[open_index].strip() == "":
+            open_index += 1
+        if open_index >= len(lines) or lines[open_index].strip() != "{":
+            raise StripError(f"第 {block_marker + 1} 行之后未找到「更新」块的起始 {{")
         block_end = find_matching_brace(lines, open_index)
-        del lines[open_index : block_end + 1]
-        lines.insert(open_index, REPLACEMENT_NOTE)
+        # 从**声明行**删到块结束 —— 漏掉声明行会留下未使用的变量并被 verify 判为残留
+        del lines[block_marker : block_end + 1]
+        lines.insert(block_marker, REPLACEMENT_NOTE)
 
     # 1. final 字段（必须删，否则编译失败）
     field_index = find_line(lines, FIELD_MARKER)
@@ -86,12 +90,20 @@ def strip(lines: list[str]) -> list[str]:
 
 
 def verify(source: str) -> None:
-    """断言删除彻底且结构完好。"""
+    """断言删除彻底、结构完好，且**没有删掉后续设置块**。"""
     if source.count("{") != source.count("}"):
         raise StripError("花括号不配对 —— 删除范围有误")
     for leaked in ("updateListener", "updatePaneList", "UpdateChecker", "UpdateChannel", "onUpdate"):
         if leaked in source:
             raise StripError(f"残留 {leaked} —— 删除不彻底")
+    # 防回归：若块定位错误（向上命中了外层容器块的 {），语言等后续设置块会被一并删除。
+    # 括号仍然配对，仅靠结构检查发现不了，必须检查内容标记。
+    for required in ("ComponentList languagePaneList", "settings.launcher.language"):
+        if required not in source:
+            raise StripError(
+                f"疑似删除范围过大：未找到 `{required}` —— "
+                "「更新」块定位可能命中了外层容器块，请人工检查上游是否重构了设置页结构"
+            )
 
 
 def main() -> int:
