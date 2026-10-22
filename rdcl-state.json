@@ -1,7 +1,8 @@
 {
-  "_comment": "RDCL CI 状态文件 —— 由 sync-upstream.yml 回写。幂等判断以本仓库 tag `rdcl/<上游tag>` 是否存在为最终依据（本文件仅作审计记录与构建次数计数）。",
+  "_comment": "RDCL CI 状态文件 —— 由 sync-upstream.yml 回写。幂等判据 = 本仓库 tag `rdcl/<上游tag>` 是否存在 **且** 内容指纹（patches+scripts+assets 的 sha256）与 build_fingerprint 一致；任一变化即重新构建。build_count[tag] 用于生成 <tag>-rdcl+n 的 n。",
   "last_built_tag": null,
   "last_built_commit": null,
   "last_built_at": null,
+  "build_fingerprint": null,
   "build_count": {}
 }

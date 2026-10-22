@@ -47,6 +47,7 @@ jobs:
       build_number: ${{ steps.check.outputs.build_number }}
       upstream_prerelease: ${{ steps.check.outputs.upstream_prerelease }}
       status_synced: ${{ steps.check.outputs.status_synced }}
+      fingerprint: ${{ steps.check.outputs.fingerprint }}
     steps:
       - name: Checkout RDCL
         uses: actions/checkout@v6
@@ -84,20 +85,40 @@ jobs:
             UPSTREAM_PRE="$PRE"
           fi
 
-          # 4. 幂等：本仓库是否已有 rdcl/<tag>
+          # 4. 内容指纹 —— 决定产物内容的部分（补丁 + 脚本 + 素材）
+          #    这样「上游 tag 没变但补丁/脚本改了」也会触发重建（+n），
+          #    而仅改 workflow / 文档不会重建产物
+          FINGERPRINT=$(
+            {
+              cat patches/[0-9][0-9][0-9][0-9]-*.patch 2>/dev/null || true
+              cat scripts/*.py 2>/dev/null || true
+              find assets -type f -exec cat {} + 2>/dev/null || true
+            } | sha256sum | cut -d' ' -f1
+          )
+          STORED_FP=$(jq -r '.build_fingerprint // ""' rdcl-state.json 2>/dev/null || echo "")
+
+          # 5. 幂等判据一：本仓库是否已有 rdcl/<tag>
           EXISTING=$(git ls-remote --tags --refs origin "refs/tags/rdcl/${UPSTREAM_TAG}" | wc -l)
 
-          # 5. 构建次数（rdcl-state.json 的 build_count[tag]，缺省 0）
+          # 6. 构建次数（rdcl-state.json 的 build_count[tag]，缺省 0）
           PREV=$(jq -r --arg t "$UPSTREAM_TAG" '.build_count[$t] // 0' rdcl-state.json 2>/dev/null || echo 0)
           BUILD_NUMBER=$(( PREV + 1 ))
 
+          # 7. 幂等判据二：tag 未变时，比对内容指纹
           HAS_NEW=true
+          SKIP_REASON=""
           if [ "$EXISTING" -gt 0 ] && [ "${FORCE:-false}" != "true" ]; then
-            HAS_NEW=false
-            echo "上游最新 tag ${UPSTREAM_TAG} 已构建过（rdcl/${UPSTREAM_TAG} 存在），跳过构建。"
+            if [ "$STORED_FP" = "$FINGERPRINT" ]; then
+              HAS_NEW=false
+              SKIP_REASON="tag 与内容指纹均未变化"
+            else
+              SKIP_REASON="tag 已构建，但内容指纹变化（补丁/脚本/素材已更新）→ 重新构建 +${BUILD_NUMBER}"
+            fi
           fi
+          echo "内容指纹 = ${FINGERPRINT}（上次构建记录 = ${STORED_FP:-<无>}）"
+          [ -n "$SKIP_REASON" ] && echo "跳过判断：${SKIP_REASON}"
 
-          # 6. prerelease 状态同步：上游已转正、而我们仍是 prerelease → 同步转正
+          # 8. prerelease 状态同步：上游已转正、而我们仍是 prerelease → 同步转正
           #    （不重新构建，只改 release 标记；下次巡检内生效，最多延迟 8 小时）
           STATUS_SYNCED=false
           if [ "$HAS_NEW" = "false" ]; then
@@ -124,6 +145,7 @@ jobs:
             echo "build_number=${BUILD_NUMBER}"
             echo "upstream_prerelease=${UPSTREAM_PRE}"
             echo "status_synced=${STATUS_SYNCED}"
+            echo "fingerprint=${FINGERPRINT}"
           } >> "$GITHUB_OUTPUT"
 
           echo "上游最新 tag = ${UPSTREAM_TAG}（${UPSTREAM_COMMIT}），构建号 +${BUILD_NUMBER}，上游 prerelease=${UPSTREAM_PRE}，has_new=${HAS_NEW}"
@@ -138,6 +160,7 @@ jobs:
       UPSTREAM_COMMIT: ${{ needs.detect.outputs.commit }}
       BUILD_NUMBER: ${{ needs.detect.outputs.build_number }}
       UPSTREAM_PRERELEASE: ${{ needs.detect.outputs.upstream_prerelease }}
+      BUILD_FINGERPRINT: ${{ needs.detect.outputs.fingerprint }}
     steps:
       - name: Checkout 上游 tag 源码
         uses: actions/checkout@v6
@@ -242,11 +265,16 @@ jobs:
             .
 
       - name: 创建 tag 与 GitHub Release
+        # 注意：两个 checkout 都在子目录（upstream/ 与 rdcl/），根目录不是 git 仓库，
+        # gh 需要在本仓库检出目录中执行，否则报 "not a git repository"
+        working-directory: rdcl
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          LIBS=upstream/HMCL/build/libs
+          # 资产在上游源码树里，用绝对路径（当前工作目录是 rdcl/）
+          LIBS="$GITHUB_WORKSPACE/upstream/HMCL/build/libs"
+          ls -la "$LIBS"
 
           cat > /tmp/rdcl-notes.md <<EOF
           RDCL 构建自上游 HMCL \`${UPSTREAM_TAG}\`（commit \`${UPSTREAM_COMMIT}\`），第 ${BUILD_NUMBER} 次构建。
@@ -274,7 +302,7 @@ jobs:
           ASSETS=(
             "$LIBS"/RDCL-*.jar "$LIBS"/RDCL-*.exe "$LIBS"/RDCL-*.sh "$LIBS"/RDCL-*.deb
             "$LIBS"/RDCL-*.sha1 "$LIBS"/RDCL-*.sha256 "$LIBS"/RDCL-*.sha512
-            "RDCL-${UPSTREAM_TAG}-source.tar.gz"
+            "$GITHUB_WORKSPACE/RDCL-${UPSTREAM_TAG}-source.tar.gz"
           )
 
           # tag 与 release 名与 +n 无关（始终 rdcl/<tag>），因此同一 tag 的多次构建
@@ -305,8 +333,9 @@ jobs:
              --arg commit "$UPSTREAM_COMMIT" \
              --arg now "$NOW" \
              --argjson n "$BUILD_NUMBER" \
+             --arg fp "$BUILD_FINGERPRINT" \
              '.last_built_tag=$tag | .last_built_commit=$commit | .last_built_at=$now
-              | .build_count[$tag]=$n' rdcl-state.json > rdcl-state.json.tmp
+              | .build_count[$tag]=$n | .build_fingerprint=$fp' rdcl-state.json > rdcl-state.json.tmp
           mv rdcl-state.json.tmp rdcl-state.json
           cat rdcl-state.json
 
