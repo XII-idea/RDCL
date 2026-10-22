@@ -1,0 +1,100 @@
+diff --git a/HMCL/src/main/java/org/jackhuang/hmcl/Metadata.java b/HMCL/src/main/java/org/jackhuang/hmcl/Metadata.java
+index 3780f3720..9e33165e5 100644
+--- a/HMCL/src/main/java/org/jackhuang/hmcl/Metadata.java
++++ b/HMCL/src/main/java/org/jackhuang/hmcl/Metadata.java
+@@ -58,6 +58,8 @@ public final class Metadata {
+     public static final String DOCS_URL = "https://docs.hmcl.net";
+     public static final String CONTACT_URL = DOCS_URL + "/help.html";
+     public static final String CHANGELOG_URL = DOCS_URL + "/changelog/";
++    // RDCL: 保留上游 EULA 链接不变（GPLv3 未要求移除该协议，RDCL 同等适用）；
++    //       rebrand 的 URL 重映射对本常量显式排除，见规划 §4.4-(2)。
+     public static final String EULA_URL = DOCS_URL + "/eula/hmcl.html";
+     public static final String GROUPS_URL = "https://www.bilibili.com/opus/905435541874409529";
+ 
+diff --git a/HMCL/src/main/java/org/jackhuang/hmcl/ui/main/FeedbackPage.java b/HMCL/src/main/java/org/jackhuang/hmcl/ui/main/FeedbackPage.java
+index 789898e46..d8fc325de 100644
+--- a/HMCL/src/main/java/org/jackhuang/hmcl/ui/main/FeedbackPage.java
++++ b/HMCL/src/main/java/org/jackhuang/hmcl/ui/main/FeedbackPage.java
+@@ -42,23 +42,8 @@ public class FeedbackPage extends SpinnerPane {
+         FXUtils.smoothScrolling(scrollPane);
+         setContent(scrollPane);
+ 
+-        ComponentList groups = new ComponentList();
+-        {
+-            var users = LineButton.createExternalLinkButton(Metadata.GROUPS_URL);
+-            users.setLargeTitle(true);
+-            users.setLeading(FXUtils.newBuiltinImage("/assets/img/icon.png"));
+-            users.setTitle(i18n("contact.chat.qq_group"));
+-            users.setSubtitle(i18n("contact.chat.qq_group.statement"));
+-
+-            var discord = LineButton.createExternalLinkButton("https://discord.gg/jVvC7HfM6U");
+-            discord.setLargeTitle(true);
+-            discord.setLeading(FXUtils.newBuiltinImage("/assets/img/discord.png"));
+-            discord.setTitle(i18n("contact.chat.discord"));
+-            discord.setSubtitle(i18n("contact.chat.discord.statement"));
+-
+-            groups.getContent().setAll(users, discord);
+-        }
+-
++        // RDCL: 已移除「官方群组」区块（B 站用户群 / Discord）—— 反馈渠道只保留 GitHub Issue，
++        //       其余反馈与帮助入口由 rebrand 指向 https://github.com/XII-idea/RDCL/issues
+         ComponentList feedback = new ComponentList();
+         {
+             var github = LineButton.createExternalLinkButton("https://github.com/HMCL-dev/HMCL/issues/new/choose");
+@@ -76,8 +61,6 @@ public class FeedbackPage extends SpinnerPane {
+         }
+ 
+         content.getChildren().addAll(
+-                ComponentList.createComponentListTitle(i18n("contact.chat")),
+-                groups,
+                 ComponentList.createComponentListTitle(i18n("contact.feedback")),
+                 feedback
+         );
+diff --git a/HMCL/src/main/java/org/jackhuang/hmcl/ui/main/HelpPage.java b/HMCL/src/main/java/org/jackhuang/hmcl/ui/main/HelpPage.java
+index ca2c69810..637a746bc 100644
+--- a/HMCL/src/main/java/org/jackhuang/hmcl/ui/main/HelpPage.java
++++ b/HMCL/src/main/java/org/jackhuang/hmcl/ui/main/HelpPage.java
+@@ -56,30 +56,23 @@ public class HelpPage extends SpinnerPane {
+         doc.getContent().setAll(docPane);
+         content.getChildren().add(doc);
+ 
++        // RDCL: 帮助页只保留「文档」与「提交 Issue」入口；远程帮助目录已被屏蔽（见 [loadHelp]）。
++        var issuePane = LineButton.createExternalLinkButton("https://github.com/HMCL-dev/HMCL/issues/new/choose");
++        issuePane.setLargeTitle(true);
++        issuePane.setTitle(i18n("contact.feedback.github"));
++        issuePane.setSubtitle(i18n("contact.feedback.github.statement"));
++
++        ComponentList issue = new ComponentList();
++        issue.getContent().setAll(issuePane);
++        content.getChildren().add(issue);
++
+         loadHelp();
+     }
+ 
++    /// RDCL: no-op —— 已屏蔽对 HMCL 文档站 `index.json` 的远程请求，
++    /// 避免 RDCL 依赖上游文档站存活（反馈/帮助入口见构造函数中的 Issue 按钮）。
+     private void loadHelp() {
+-        showSpinner();
+-        Task.supplyAsync(() -> HttpRequest.GET(Metadata.DOCS_URL + "/index.json").getJson(listTypeOf(HelpCategory.class)))
+-                .thenAcceptAsync(Schedulers.javafx(), helpCategories -> {
+-                    for (HelpCategory category : helpCategories) {
+-                        ComponentList categoryPane = new ComponentList();
+-
+-                        for (Help help : category.items()) {
+-                            var item = LineButton.createExternalLinkButton(help.url());
+-                            item.setLargeTitle(true);
+-                            item.setTitle(help.title());
+-                            item.setSubtitle(help.subtitle());
+-
+-                            categoryPane.getContent().add(item);
+-                        }
+-
+-                        content.getChildren().add(ComponentList.createComponentListTitle(category.title()));
+-                        content.getChildren().add(categoryPane);
+-                    }
+-                    hideSpinner();
+-                }).start();
++        hideSpinner();
+     }
+ 
+     @JsonSerializable

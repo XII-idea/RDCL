@@ -1,0 +1,34 @@
+Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International
+(CC BY-NC-SA 4.0)
+SPDX-License-Identifier: CC-BY-NC-SA-4.0
+
+Official licence text:
+  https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode
+Human-readable summary:
+  https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans
+
+==============================================================================
+Scope (binding — see section 4 of the LICENSE file for the full statement)
+==============================================================================
+
+This licence applies to the following content ONLY, and only when it is
+original to this project:
+
+  1. RDCL's own documentation (README.md, docs/, and other documents
+     produced for this project); and
+  2. RDCL's own artwork (original icons, backgrounds and other images
+     created for RDCL), such as the files under assets/rdcl/.
+
+It does NOT apply to:
+
+  * the HMCL-derived source code (HMCL/, HMCLCore/, HMCLBoot/, buildSrc/,
+    minecraft/ and any other file originating from the upstream repository),
+    which is licensed under GNU GPLv3 as a whole — see LICENSE-GPL-3.0 and
+    section 2 of the LICENSE file;
+
+  * any artwork or asset that originates from the upstream HMCL project or
+    its contributors (built-in wallpapers, upstream icons, credited logos),
+    which we convey unchanged under its original GPLv3 terms because we are
+    not the copyright holders of that material.
+
+Copyright (C) 2025-2026 Steverjava <steverjava@outlook.com> and contributors

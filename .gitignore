@@ -1,0 +1,84 @@
+# ===========================================================
+# RDCL 仓库忽略规则（Java / Gradle 项目）
+# ===========================================================
+
+# ---------- 本地工作区（不纳入版本控制） ----------
+# 上游 HMCL 克隆/临时检出目录
+tmp/
+# 规划、草稿、临时产物
+temp/
+
+# ---------- Gradle ----------
+.gradle/
+build/
+!**/src/**/build/
+!build/
+out/
+gradle-app.setting
+!gradle-wrapper.jar
+.gradletasknamecache
+
+# ---------- IntelliJ IDEA / Android Studio ----------
+.idea/
+*.iws
+*.iml
+*.ipr
+out/
+
+# ---------- Eclipse ----------
+.classpath
+.project
+.settings/
+bin/
+
+# ---------- NetBeans ----------
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+# ---------- VS Code ----------
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# ---------- Maven（上游可能携带） ----------
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+
+# ---------- 系统与编辑器杂项 ----------
+*.class
+*.jar
+!lib/**/*.jar
+!gradle/wrapper/gradle-wrapper.jar
+*.war
+*.ear
+*.log
+hs_err_pid*
+replay_pid*
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~
+
+# ---------- Python（scripts/ 下的工具脚本） ----------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# ---------- 构建产物（本地手动构建时） ----------
+*.exe
+*.deb
+*.sha1
+*.sha256
+*.sha512
+!gradle/wrapper/*.properties

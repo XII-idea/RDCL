@@ -1,0 +1,38 @@
+diff --git a/HMCL/build.gradle.kts b/HMCL/build.gradle.kts
+index e9dacb207..0429cb6b5 100644
+--- a/HMCL/build.gradle.kts
++++ b/HMCL/build.gradle.kts
+@@ -55,6 +55,14 @@ if (buildNumber != null) {
+     }
+ }
+ 
++// RDCL: 版本号从「本次构建的上游 tag」派生，形如 3.17.0.362-rdcl+1（Java 式，规划 §4.2）。
++// 严禁改用 versionRoot + BUILD_NUMBER 拼接 —— 上游发 3.18 时会拼成 3.18.x，与 tag 对不上。
++val rdclUpstreamTag = System.getenv("RDCL_UPSTREAM_TAG") ?: ""
++if (rdclUpstreamTag.isNotBlank()) {
++    val rdclBuildNumber = System.getenv("RDCL_BUILD_NUMBER") ?: "1"
++    version = "${rdclUpstreamTag.removePrefix("v")}-rdcl+$rdclBuildNumber"
++}
++
+ val embedResources = configurations.register("embedResources")
+ 
+ dependencies {
+@@ -183,6 +191,9 @@ val createPropertiesFile = tasks.register<WriteProperties>("createPropertiesFile
+ tasks.jar {
+     enabled = false
+     dependsOn(tasks["shadowJar"])
++
++    // RDCL: 产物名改为 RDCL-<version>.*（附加条款 7(c) 要求与原版区分）
++    archiveBaseName.set("RDCL")
+ }
+ 
+ val jarPath = tasks.jar.get().archiveFile.get().asFile
+@@ -191,6 +202,8 @@ tasks.shadowJar {
+     dependsOn(createPropertiesFile)
+ 
+     archiveClassifier.set(null as String?)
++    // RDCL: 与 tasks.jar 保持同名 —— jarPath（签名/校验目标）取自 tasks.jar 的 archiveFile
++    archiveBaseName.set("RDCL")
+ 
+     exclude("**/package-info.class")
+     exclude("META-INF/maven/**")

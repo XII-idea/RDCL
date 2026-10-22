@@ -1,0 +1,83 @@
+# RDCL 保底校验 —— 规划 §3.3
+#
+# push / PR 时立即验证，而不是等 8 小时后的定时任务：
+#   1. 三个 patch 在「上游最新 tag」上能否干净应用（git apply --check）
+#   2. 三个脚本能否跑通（中和 / 删更新块 / 品牌替换）
+#   3. 品牌残留门禁是否通过（含保留项白名单）
+#
+# 任何一步失败都意味着：上游动了我们依赖的结构，需要 rebase 补丁或更新脚本。
+
+name: Validate RDCL patches & branding
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: 补丁可应用性 + 品牌门禁
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout RDCL
+        uses: actions/checkout@v6
+        with:
+          path: rdcl
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 解析上游最新 tag
+        id: resolve
+        run: |
+          set -euo pipefail
+          TAG=$(git ls-remote --tags --refs https://github.com/HMCL-dev/HMCL.git \
+            | awk '{print $2}' | sed 's|refs/tags/||' | grep -E '^v[0-9]' | sort -V | tail -n 1)
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "上游最新 tag = ${TAG}"
+
+      - name: Checkout 上游源码（用解析到的 tag）
+        uses: actions/checkout@v6
+        with:
+          repository: HMCL-dev/HMCL
+          ref: ${{ steps.resolve.outputs.tag }}
+          path: upstream
+          fetch-depth: 1
+
+      - name: ① 补丁可应用性（git apply --check）
+        working-directory: upstream
+        run: |
+          set -euo pipefail
+          for p in "$GITHUB_WORKSPACE"/rdcl/patches/[0-9][0-9][0-9][0-9]-*.patch; do
+            echo "::group::check $(basename "$p")"
+            git apply --check "$p"
+            echo "::endgroup::"
+          done
+
+      - name: ② 应用补丁与脚本
+        working-directory: upstream
+        run: |
+          set -euo pipefail
+          for p in "$GITHUB_WORKSPACE"/rdcl/patches/[0-9][0-9][0-9][0-9]-*.patch; do
+            git apply --3way "$p"
+          done
+          python3 "$GITHUB_WORKSPACE/rdcl/scripts/neutralize_region.py" \
+            HMCL/src/main/java/org/jackhuang/hmcl/util/RegionUtils.java
+          python3 "$GITHUB_WORKSPACE/rdcl/scripts/strip_update_ui.py" \
+            HMCL/src/main/java/org/jackhuang/hmcl/ui/main/SettingsPage.java
+
+      - name: ③ 品牌替换
+        run: python3 rdcl/scripts/rebrand.py upstream
+
+      - name: ④ 品牌残留门禁
+        run: python3 rdcl/scripts/check_branding.py upstream

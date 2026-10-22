@@ -1,0 +1,7 @@
+{
+  "_comment": "RDCL CI 状态文件 —— 由 sync-upstream.yml 回写。幂等判断以本仓库 tag `rdcl/<上游tag>` 是否存在为最终依据（本文件仅作审计记录与构建次数计数）。",
+  "last_built_tag": null,
+  "last_built_commit": null,
+  "last_built_at": null,
+  "build_count": {}
+}

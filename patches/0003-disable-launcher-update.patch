@@ -1,0 +1,188 @@
+diff --git a/HMCL/src/main/java/org/jackhuang/hmcl/upgrade/UpdateChecker.java b/HMCL/src/main/java/org/jackhuang/hmcl/upgrade/UpdateChecker.java
+index 81f9c17bc..1be74145c 100644
+--- a/HMCL/src/main/java/org/jackhuang/hmcl/upgrade/UpdateChecker.java
++++ b/HMCL/src/main/java/org/jackhuang/hmcl/upgrade/UpdateChecker.java
+@@ -57,8 +57,8 @@ public final class UpdateChecker {
+     private static final ReadOnlyBooleanWrapper checkingUpdate = new ReadOnlyBooleanWrapper(false);
+     private static final ReadOnlyObjectWrapper<@Nullable Throwable> error = new ReadOnlyObjectWrapper<>();
+ 
++    /// RDCL: 屏蔽启动时的更新检查 —— 不请求上游更新源，主页更新卡片随 [outdatedProperty] 恒 false 自动隐藏。
+     public static void init() {
+-        requestCheckUpdate(UpdateChannel.getChannel(), settings().acceptPreviewUpdateProperty().get());
+     }
+ 
+     public static RemoteVersion getLatestVersion() {
+@@ -69,16 +69,18 @@ public final class UpdateChecker {
+         return latestVersion;
+     }
+ 
++    /// RDCL: 恒为「已是最新」—— 本发行版不跟进上游更新通道。
+     public static boolean isOutdated() {
+-        return outdated.get();
++        return false;
+     }
+ 
+     public static ObservableBooleanValue outdatedProperty() {
+         return outdated;
+     }
+ 
++    /// RDCL: 恒为「未在检查」—— 与 [init] 的 no-op 保持一致，避免 UI 停留在检查中状态。
+     public static boolean isCheckingUpdate() {
+-        return checkingUpdate.get();
++        return false;
+     }
+ 
+     public static ReadOnlyBooleanProperty checkingUpdateProperty() {
+@@ -107,36 +109,7 @@ public final class UpdateChecker {
+                 version.contains("SNAPSHOT"); // eg. 3.5.SNAPSHOT
+     }
+ 
++    /// RDCL: no-op —— 手动触发的检查更新同样不发起任何网络请求，也不改变任何状态。
+     public static void requestCheckUpdate(UpdateChannel channel, boolean preview) {
+-        Platform.runLater(() -> {
+-            if (isCheckingUpdate())
+-                return;
+-            checkingUpdate.set(true);
+-
+-            thread(() -> {
+-                RemoteVersion result = null;
+-                Throwable t = null;
+-                try {
+-                    result = checkUpdate(channel, preview);
+-                    LOG.info("Latest version (" + channel + ", preview=" + preview + ") is " + result);
+-                } catch (Throwable e) {
+-                    t = e;
+-                    LOG.warning("Failed to check for update", e);
+-                }
+-                Throwable throwable = t;
+-
+-                RemoteVersion finalResult = result;
+-                Platform.runLater(() -> {
+-                    if (throwable != null) {
+-                        latestVersion.set(null);
+-                        error.set(throwable);
+-                    } else {
+-                        error.set(null);
+-                        latestVersion.set(finalResult);
+-                    }
+-                    checkingUpdate.set(false);
+-                });
+-            }, "Update Checker", true);
+-        });
+     }
+ }
+diff --git a/HMCL/src/main/java/org/jackhuang/hmcl/upgrade/UpdateHandler.java b/HMCL/src/main/java/org/jackhuang/hmcl/upgrade/UpdateHandler.java
+index 9d2e23ac8..493fa3327 100644
+--- a/HMCL/src/main/java/org/jackhuang/hmcl/upgrade/UpdateHandler.java
++++ b/HMCL/src/main/java/org/jackhuang/hmcl/upgrade/UpdateHandler.java
+@@ -59,6 +59,12 @@ public final class UpdateHandler {
+     }
+ 
+     /**
++     * 处理命令行参数。
++     *
++     * <p>RDCL: 已移除 {@code --apply-to} 分支（自动更新的应用入口），
++     * 但保留升级迁移逻辑（{@link #isNestedApplication} → {@link #performMigration}）
++     * 与升级后重启提示 —— 它们与「检查/应用更新」无关，从 HMCL 旧版本迁移配置时仍需要。</p>
++     *
+      * @return whether to exit
+      */
+     public static boolean processArguments(String[] args) {
+@@ -75,21 +81,6 @@ public final class UpdateHandler {
+             return true;
+         }
+ 
+-        if (args.length == 2 && args[0].equals("--apply-to")) {
+-            if (OperatingSystem.CURRENT_OS == OperatingSystem.WINDOWS && !OperatingSystem.isWindows7OrLater()) {
+-                SwingUtils.showErrorDialog(i18n("fatal.apply_update_need_win7", Metadata.PUBLISH_URL));
+-                return true;
+-            }
+-
+-            try {
+-                applyUpdate(Paths.get(args[1]));
+-            } catch (IOException e) {
+-                LOG.warning("Failed to apply update", e);
+-                SwingUtils.showErrorDialog(i18n("fatal.apply_update_failure", Metadata.MANUAL_UPDATE_URL) + "\n" + StringUtils.getStackTrace(e));
+-            }
+-            return true;
+-        }
+-
+         if (isFirstLaunchAfterUpgrade()) {
+             SwingUtils.showInfoDialog(i18n("fatal.migration_requires_manual_reboot"));
+             return true;
+@@ -98,73 +89,9 @@ public final class UpdateHandler {
+         return false;
+     }
+ 
++    /// RDCL: no-op —— 屏蔽自动更新：不下载上游 jar，因此不会把 RDCL 覆盖回 HMCL。
++    /// 保留 [startJava] 供重启功能使用（`Restarter` 依赖它，与更新无关）。
+     public static void updateFrom(RemoteVersion version) {
+-        checkFxUserThread();
+-
+-        if (OperatingSystem.CURRENT_OS == OperatingSystem.WINDOWS && !OperatingSystem.isWindows7OrLater()) {
+-            Controllers.dialog(i18n("fatal.apply_update_need_win7", Metadata.PUBLISH_URL), i18n("message.error"), MessageType.ERROR);
+-            return;
+-        }
+-
+-        Controllers.dialog(new UpgradeDialog(version, () -> {
+-            Path downloaded;
+-            try {
+-                downloaded = Files.createTempFile("hmcl-update-", ".jar");
+-            } catch (IOException e) {
+-                LOG.warning("Failed to create temp file", e);
+-                return;
+-            }
+-
+-            Task<?> task = new HMCLDownloadTask(version, downloaded);
+-
+-            TaskExecutor executor = task.executor();
+-            Controllers.taskDialog(executor, i18n("message.downloading"), TaskCancellationAction.NORMAL);
+-            thread(() -> {
+-                boolean success = executor.test();
+-
+-                if (success) {
+-                    try {
+-                        if (!IntegrityChecker.isSelfVerified() && !IntegrityChecker.DISABLE_SELF_INTEGRITY_CHECK) {
+-                            throw new IOException("Current JAR is not verified");
+-                        }
+-
+-                        var latch = new CountDownLatch(1);
+-                        Platform.runLater(() -> {
+-                            try {
+-                                SettingsManager.savePendingChanges();
+-                            } finally {
+-                                latch.countDown();
+-                            }
+-                        });
+-
+-                        try {
+-                            latch.await();
+-                        } catch (InterruptedException ignored) {
+-                            // Ignore
+-                        }
+-
+-                        try {
+-                            FileSaver.waitForAllSaves();
+-                        } catch (InterruptedException ignored) {
+-                            // Ignore
+-                        }
+-
+-                        requestUpdate(downloaded, getCurrentLocation());
+-                        EntryPoint.exit(0);
+-                    } catch (IOException e) {
+-                        LOG.warning("Failed to update to " + version, e);
+-                        Platform.runLater(() -> Controllers.dialog(StringUtils.getStackTrace(e), i18n("update.failed"), MessageType.ERROR));
+-                    }
+-
+-                } else {
+-                    Exception e = executor.getException();
+-                    LOG.warning("Failed to update to " + version, e);
+-                    if (!(e instanceof CancellationException)) {
+-                        Platform.runLater(() -> Controllers.dialog(e.toString(), i18n("update.failed"), MessageType.ERROR));
+-                    }
+-                }
+-            });
+-        }));
+     }
+ 
+     private static void applyUpdate(Path target) throws IOException {
