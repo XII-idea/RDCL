@@ -45,6 +45,8 @@ jobs:
       tag: ${{ steps.check.outputs.tag }}
       commit: ${{ steps.check.outputs.commit }}
       build_number: ${{ steps.check.outputs.build_number }}
+      upstream_prerelease: ${{ steps.check.outputs.upstream_prerelease }}
+      status_synced: ${{ steps.check.outputs.status_synced }}
     steps:
       - name: Checkout RDCL
         uses: actions/checkout@v6
@@ -56,6 +58,7 @@ jobs:
         id: check
         env:
           FORCE: ${{ inputs.force }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
@@ -73,17 +76,45 @@ jobs:
             "refs/tags/${UPSTREAM_TAG}" "refs/tags/${UPSTREAM_TAG}^{}" \
             | awk '$2 !~ /\^\{\}$/ {print $1; exit}')
 
-          # 3. 幂等：本仓库是否已有 rdcl/<tag>
+          # 3. 上游该 release 的 prerelease 状态
+          #    （上游行为：正式版刚发布时也标 prerelease，随后转为 release）
+          #    未知/无 release 时保守按 prerelease 处理
+          UPSTREAM_PRE="true"
+          if PRE=$(gh api "repos/HMCL-dev/HMCL/releases/tags/${UPSTREAM_TAG}" --jq '.prerelease' 2>/dev/null); then
+            UPSTREAM_PRE="$PRE"
+          fi
+
+          # 4. 幂等：本仓库是否已有 rdcl/<tag>
           EXISTING=$(git ls-remote --tags --refs origin "refs/tags/rdcl/${UPSTREAM_TAG}" | wc -l)
 
-          # 4. 构建次数（rdcl-state.json 的 build_count[tag]，缺省 0）
+          # 5. 构建次数（rdcl-state.json 的 build_count[tag]，缺省 0）
           PREV=$(jq -r --arg t "$UPSTREAM_TAG" '.build_count[$t] // 0' rdcl-state.json 2>/dev/null || echo 0)
           BUILD_NUMBER=$(( PREV + 1 ))
 
           HAS_NEW=true
           if [ "$EXISTING" -gt 0 ] && [ "${FORCE:-false}" != "true" ]; then
             HAS_NEW=false
-            echo "上游最新 tag ${UPSTREAM_TAG} 已构建过（rdcl/${UPSTREAM_TAG} 存在），跳过。"
+            echo "上游最新 tag ${UPSTREAM_TAG} 已构建过（rdcl/${UPSTREAM_TAG} 存在），跳过构建。"
+          fi
+
+          # 6. prerelease 状态同步：上游已转正、而我们仍是 prerelease → 同步转正
+          #    （不重新构建，只改 release 标记；下次巡检内生效，最多延迟 8 小时）
+          STATUS_SYNCED=false
+          if [ "$HAS_NEW" = "false" ]; then
+            OUR_PRE="unknown"
+            if OP=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/rdcl/${UPSTREAM_TAG}" --jq '.prerelease' 2>/dev/null); then
+              OUR_PRE="$OP"
+            fi
+            if [ "$UPSTREAM_PRE" = "false" ] && [ "$OUR_PRE" = "true" ]; then
+              if gh release edit "rdcl/${UPSTREAM_TAG}" --prerelease=false; then
+                STATUS_SYNCED=true
+                echo "已同步：上游 ${UPSTREAM_TAG} 已转为正式版，本仓库对应 release 同步转正。"
+              else
+                echo "::warning::同步 release 状态失败（不影响构建）"
+              fi
+            else
+              echo "release 状态无需同步（上游=${UPSTREAM_PRE}，本仓库=${OUR_PRE}）"
+            fi
           fi
 
           {
@@ -91,9 +122,11 @@ jobs:
             echo "tag=${UPSTREAM_TAG}"
             echo "commit=${UPSTREAM_COMMIT}"
             echo "build_number=${BUILD_NUMBER}"
+            echo "upstream_prerelease=${UPSTREAM_PRE}"
+            echo "status_synced=${STATUS_SYNCED}"
           } >> "$GITHUB_OUTPUT"
 
-          echo "上游最新 tag = ${UPSTREAM_TAG}（${UPSTREAM_COMMIT}），本次构建号 = +${BUILD_NUMBER}，has_new=${HAS_NEW}"
+          echo "上游最新 tag = ${UPSTREAM_TAG}（${UPSTREAM_COMMIT}），构建号 +${BUILD_NUMBER}，上游 prerelease=${UPSTREAM_PRE}，has_new=${HAS_NEW}"
 
   build:
     name: 构建并发布 RDCL
@@ -104,6 +137,7 @@ jobs:
       UPSTREAM_TAG: ${{ needs.detect.outputs.tag }}
       UPSTREAM_COMMIT: ${{ needs.detect.outputs.commit }}
       BUILD_NUMBER: ${{ needs.detect.outputs.build_number }}
+      UPSTREAM_PRERELEASE: ${{ needs.detect.outputs.upstream_prerelease }}
     steps:
       - name: Checkout 上游 tag 源码
         uses: actions/checkout@v6
@@ -143,13 +177,15 @@ jobs:
 
       - name: 地区限制中和（scripts/neutralize_region.py）
         working-directory: upstream
-        run: python3 "$GITHUB_WORKSPACE/rdcl/scripts/neutralize_region.py" \
-             HMCL/src/main/java/org/jackhuang/hmcl/util/RegionUtils.java
+        run: |
+          python3 "$GITHUB_WORKSPACE/rdcl/scripts/neutralize_region.py" \
+            HMCL/src/main/java/org/jackhuang/hmcl/util/RegionUtils.java
 
       - name: 移除设置页更新区块（scripts/strip_update_ui.py）
         working-directory: upstream
-        run: python3 "$GITHUB_WORKSPACE/rdcl/scripts/strip_update_ui.py" \
-             HMCL/src/main/java/org/jackhuang/hmcl/ui/main/SettingsPage.java
+        run: |
+          python3 "$GITHUB_WORKSPACE/rdcl/scripts/strip_update_ui.py" \
+            HMCL/src/main/java/org/jackhuang/hmcl/ui/main/SettingsPage.java
 
       # ---------- 步骤 5：品牌替换（§5） ----------
       - name: 品牌替换（rebrand R1/R2/R3）
@@ -224,6 +260,13 @@ jobs:
           **许可证**：HMCL 派生部分 GPLv3 + 上游附加条款；RDCL 自有代码 AGPLv3；自有文档与图片 CC BY-NC-SA 4.0。详见仓库 \`LICENSE\`。
           EOF
           )
+          # 上游该 tag 当时是 prerelease → 我们也标 prerelease；已转正 → 发正式 release
+          # （上游正式版会先标 prerelease 再转正，转正同步由 detect 步骤 6 负责）
+          PRERELEASE_FLAG="--prerelease"
+          if [ "${UPSTREAM_PRERELEASE:-true}" = "false" ]; then
+            PRERELEASE_FLAG=""
+          fi
+
           gh release create "rdcl/${UPSTREAM_TAG}" \
             "$LIBS"/RDCL-*.jar "$LIBS"/RDCL-*.exe "$LIBS"/RDCL-*.sh "$LIBS"/RDCL-*.deb \
             "$LIBS"/RDCL-*.sha1 "$LIBS"/RDCL-*.sha256 "$LIBS"/RDCL-*.sha512 \
@@ -231,7 +274,7 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "RDCL ${UPSTREAM_TAG}+${BUILD_NUMBER}" \
             --notes "$NOTE" \
-            --prerelease
+            $PRERELEASE_FLAG
 
       # ---------- 步骤 10：回写状态（§3.2 步骤10） ----------
       - name: 回写 rdcl-state.json
