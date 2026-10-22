@@ -247,7 +247,8 @@ jobs:
         run: |
           set -euo pipefail
           LIBS=upstream/HMCL/build/libs
-          NOTE=$(cat <<EOF
+
+          cat > /tmp/rdcl-notes.md <<EOF
           RDCL 构建自上游 HMCL \`${UPSTREAM_TAG}\`（commit \`${UPSTREAM_COMMIT}\`），第 ${BUILD_NUMBER} 次构建。
 
           **与上游的差异**：移除中国大陆游戏下载限制 · 品牌改名 RDCL / Ray Dust Craft Launcher · 反馈渠道指向本仓库 Issues · 屏蔽上游自动更新 · 屏蔽帮助页远程目录。
@@ -257,9 +258,10 @@ jobs:
           | \`RDCL-*\` 含 jar / exe / sh / deb | 各平台启动器（附 sha1/sha256/sha512） |
           | \`RDCL-${UPSTREAM_TAG}-source.tar.gz\` | **与二进制一一对应的完整源码**（GPLv3 §5） |
 
+          **关于本 release**：tag 与 release 名固定为 \`rdcl/${UPSTREAM_TAG}\`，与构建次数无关；同一上游版本的**多次重建会覆盖本 release 的资产与标题**（如 +1 → +5），始终以最后一次构建为准。上游正式版转为 release 时，本 release 会自动同步转正。
+
           **许可证**：HMCL 派生部分 GPLv3 + 上游附加条款；RDCL 自有代码 AGPLv3；自有文档与图片 CC BY-NC-SA 4.0。详见仓库 \`LICENSE\`。
           EOF
-          )
           # 上游该 tag 当时是 prerelease → 我们也标 prerelease；已转正 → 发正式 release
           # （上游正式版会先标 prerelease 再转正，转正同步由 detect 步骤 6 负责）
           PRERELEASE_FLAG="--prerelease"
@@ -267,14 +269,31 @@ jobs:
             PRERELEASE_FLAG=""
           fi
 
-          gh release create "rdcl/${UPSTREAM_TAG}" \
-            "$LIBS"/RDCL-*.jar "$LIBS"/RDCL-*.exe "$LIBS"/RDCL-*.sh "$LIBS"/RDCL-*.deb \
-            "$LIBS"/RDCL-*.sha1 "$LIBS"/RDCL-*.sha256 "$LIBS"/RDCL-*.sha512 \
-            "RDCL-${UPSTREAM_TAG}-source.tar.gz" \
-            --target "$GITHUB_SHA" \
-            --title "RDCL ${UPSTREAM_TAG}+${BUILD_NUMBER}" \
-            --notes "$NOTE" \
-            $PRERELEASE_FLAG
+          RELEASE_TAG="rdcl/${UPSTREAM_TAG}"
+          TITLE="RDCL ${UPSTREAM_TAG}+${BUILD_NUMBER}"
+          ASSETS=(
+            "$LIBS"/RDCL-*.jar "$LIBS"/RDCL-*.exe "$LIBS"/RDCL-*.sh "$LIBS"/RDCL-*.deb
+            "$LIBS"/RDCL-*.sha1 "$LIBS"/RDCL-*.sha256 "$LIBS"/RDCL-*.sha512
+            "RDCL-${UPSTREAM_TAG}-source.tar.gz"
+          )
+
+          # tag 与 release 名与 +n 无关（始终 rdcl/<tag>），因此同一 tag 的多次构建
+          # 会命中「已存在」—— 此时覆盖资产并更新标题，而不是创建失败
+          if gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
+            echo "release ${RELEASE_TAG} 已存在 —— 第 ${BUILD_NUMBER} 次构建：覆盖资产 + 更新标题"
+            gh release upload "$RELEASE_TAG" --clobber "${ASSETS[@]}"
+            gh release edit "$RELEASE_TAG" \
+              --title "$TITLE" \
+              --notes-file /tmp/rdcl-notes.md \
+              --prerelease="${UPSTREAM_PRERELEASE:-true}"
+          else
+            gh release create "$RELEASE_TAG" \
+              "${ASSETS[@]}" \
+              --target "$GITHUB_SHA" \
+              --title "$TITLE" \
+              --notes-file /tmp/rdcl-notes.md \
+              $PRERELEASE_FLAG
+          fi
 
       # ---------- 步骤 10：回写状态（§3.2 步骤10） ----------
       - name: 回写 rdcl-state.json
