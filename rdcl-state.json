@@ -1,7 +1,7 @@
 {
   "_comment": "RDCL CI 状态文件 —— 由 sync-upstream.yml 回写。幂等判据 = 本仓库 tag `rdcl/<上游tag>` 是否存在 **且** 内容指纹（patches+scripts+assets 的 sha256）与 build_fingerprint 一致；任一变化即重新构建并覆盖同一 release。",
-  "last_built_tag": null,
-  "last_built_commit": null,
-  "last_built_at": null,
-  "build_fingerprint": null
+  "last_built_tag": "v3.17.0.362",
+  "last_built_commit": "583e004d718102ae4489aa3f64bcde0c0161d000",
+  "last_built_at": "2026-10-22T18:45:57Z",
+  "build_fingerprint": "5b1e37ca65878dda09ba6afd1d03deb71422697b47093a3710302cd4c4ae0baf"
 }
