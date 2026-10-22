@@ -44,7 +44,6 @@ jobs:
       has_new: ${{ steps.check.outputs.has_new }}
       tag: ${{ steps.check.outputs.tag }}
       commit: ${{ steps.check.outputs.commit }}
-      build_number: ${{ steps.check.outputs.build_number }}
       upstream_prerelease: ${{ steps.check.outputs.upstream_prerelease }}
       status_synced: ${{ steps.check.outputs.status_synced }}
       fingerprint: ${{ steps.check.outputs.fingerprint }}
@@ -86,7 +85,7 @@ jobs:
           fi
 
           # 4. 内容指纹 —— 决定产物内容的部分（补丁 + 脚本 + 素材）
-          #    这样「上游 tag 没变但补丁/脚本改了」也会触发重建（+n），
+          #    这样「上游 tag 没变但补丁/脚本改了」也会触发重建，
           #    而仅改 workflow / 文档不会重建产物
           FINGERPRINT=$(
             {
@@ -100,11 +99,7 @@ jobs:
           # 5. 幂等判据一：本仓库是否已有 rdcl/<tag>
           EXISTING=$(git ls-remote --tags --refs origin "refs/tags/rdcl/${UPSTREAM_TAG}" | wc -l)
 
-          # 6. 构建次数（rdcl-state.json 的 build_count[tag]，缺省 0）
-          PREV=$(jq -r --arg t "$UPSTREAM_TAG" '.build_count[$t] // 0' rdcl-state.json 2>/dev/null || echo 0)
-          BUILD_NUMBER=$(( PREV + 1 ))
-
-          # 7. 幂等判据二：tag 未变时，比对内容指纹
+          # 6. 幂等判据二：tag 未变时，比对内容指纹
           HAS_NEW=true
           SKIP_REASON=""
           if [ "$EXISTING" -gt 0 ] && [ "${FORCE:-false}" != "true" ]; then
@@ -112,13 +107,13 @@ jobs:
               HAS_NEW=false
               SKIP_REASON="tag 与内容指纹均未变化"
             else
-              SKIP_REASON="tag 已构建，但内容指纹变化（补丁/脚本/素材已更新）→ 重新构建 +${BUILD_NUMBER}"
+              SKIP_REASON="tag 已构建，但内容指纹变化（补丁/脚本/素材已更新）→ 重新构建"
             fi
           fi
           echo "内容指纹 = ${FINGERPRINT}（上次构建记录 = ${STORED_FP:-<无>}）"
           [ -n "$SKIP_REASON" ] && echo "跳过判断：${SKIP_REASON}"
 
-          # 8. prerelease 状态同步：上游已转正、而我们仍是 prerelease → 同步转正
+          # 7. prerelease 状态同步：上游已转正、而我们仍是 prerelease → 同步转正
           #    （不重新构建，只改 release 标记；下次巡检内生效，最多延迟 8 小时）
           STATUS_SYNCED=false
           if [ "$HAS_NEW" = "false" ]; then
@@ -142,13 +137,12 @@ jobs:
             echo "has_new=${HAS_NEW}"
             echo "tag=${UPSTREAM_TAG}"
             echo "commit=${UPSTREAM_COMMIT}"
-            echo "build_number=${BUILD_NUMBER}"
             echo "upstream_prerelease=${UPSTREAM_PRE}"
             echo "status_synced=${STATUS_SYNCED}"
             echo "fingerprint=${FINGERPRINT}"
           } >> "$GITHUB_OUTPUT"
 
-          echo "上游最新 tag = ${UPSTREAM_TAG}（${UPSTREAM_COMMIT}），构建号 +${BUILD_NUMBER}，上游 prerelease=${UPSTREAM_PRE}，has_new=${HAS_NEW}"
+          echo "上游最新 tag = ${UPSTREAM_TAG}（${UPSTREAM_COMMIT}），上游 prerelease=${UPSTREAM_PRE}，has_new=${HAS_NEW}"
 
   build:
     name: 构建并发布 RDCL
@@ -158,7 +152,6 @@ jobs:
     env:
       UPSTREAM_TAG: ${{ needs.detect.outputs.tag }}
       UPSTREAM_COMMIT: ${{ needs.detect.outputs.commit }}
-      BUILD_NUMBER: ${{ needs.detect.outputs.build_number }}
       UPSTREAM_PRERELEASE: ${{ needs.detect.outputs.upstream_prerelease }}
       BUILD_FINGERPRINT: ${{ needs.detect.outputs.fingerprint }}
     steps:
@@ -198,7 +191,7 @@ jobs:
             echo "::endgroup::"
           done
 
-      - name: 地区限制中和（scripts/neutralize_region.py）
+      - name: 应用源码调整（scripts/neutralize_region.py）
         working-directory: upstream
         run: |
           python3 "$GITHUB_WORKSPACE/rdcl/scripts/neutralize_region.py" \
@@ -233,7 +226,6 @@ jobs:
         working-directory: upstream
         env:
           RDCL_UPSTREAM_TAG: ${{ needs.detect.outputs.tag }}
-          RDCL_BUILD_NUMBER: ${{ needs.detect.outputs.build_number }}
           JAVA_TOOL_OPTIONS: -Djava.awt.headless=true
           # 可选 secrets：缺省时对应功能自动降级（微软登录/部分下载源）
           MICROSOFT_AUTH_ID: ${{ secrets.MICROSOFT_AUTH_ID }}
@@ -252,7 +244,7 @@ jobs:
           JAR=$(ls upstream/HMCL/build/libs/RDCL-*.jar | head -n 1)
           unzip -t "$JAR" > /dev/null
           unzip -p "$JAR" META-INF/MANIFEST.MF | grep -E 'Main-Class|Implementation-Version'
-          echo "版本号: ${UPSTREAM_TAG}-rdcl+${BUILD_NUMBER}"
+          echo "版本号: ${UPSTREAM_TAG}-rdcl"
 
       # ---------- 步骤 9：源码包 + 发布（§3.5、§3.2 步骤9） ----------
       - name: 打包对应源码（GPLv3 §5/§6 对应源码义务）
@@ -277,16 +269,16 @@ jobs:
           ls -la "$LIBS"
 
           cat > /tmp/rdcl-notes.md <<EOF
-          RDCL 构建自上游 HMCL \`${UPSTREAM_TAG}\`（commit \`${UPSTREAM_COMMIT}\`），第 ${BUILD_NUMBER} 次构建。
+          RDCL 构建自上游 HMCL \`${UPSTREAM_TAG}\`（commit \`${UPSTREAM_COMMIT}\`）。
 
-          **与上游的差异**：移除中国大陆游戏下载限制 · 品牌改名 RDCL / Ray Dust Craft Launcher · 反馈渠道指向本仓库 Issues · 屏蔽上游自动更新 · 屏蔽帮助页远程目录。
+          **与上游的差异**：品牌改名 RDCL / Ray Dust Craft Launcher · 反馈渠道指向本仓库 Issues · 屏蔽上游自动更新 · 屏蔽帮助页远程目录。
 
           | 产物 | 说明 |
           | --- | --- |
           | \`RDCL-*\` 含 jar / exe / sh / deb | 各平台启动器（附 sha1/sha256/sha512） |
           | \`RDCL-${UPSTREAM_TAG}-source.tar.gz\` | **与二进制一一对应的完整源码**（GPLv3 §5） |
 
-          **关于本 release**：tag 与 release 名固定为 \`rdcl/${UPSTREAM_TAG}\`，与构建次数无关；同一上游版本的**多次重建会覆盖本 release 的资产与标题**（如 +1 → +5），始终以最后一次构建为准。上游正式版转为 release 时，本 release 会自动同步转正。
+          **关于本 release**：同一上游版本的**多次重建会覆盖本 release 的资产与说明**，始终以最后一次构建为准。上游正式版转为 release 时，本 release 会自动同步转正。
 
           **许可证**：HMCL 派生部分 GPLv3 + 上游附加条款；RDCL 自有代码 AGPLv3；自有文档与图片 CC BY-NC-SA 4.0。详见仓库 \`LICENSE\`。
           EOF
@@ -298,17 +290,17 @@ jobs:
           fi
 
           RELEASE_TAG="rdcl/${UPSTREAM_TAG}"
-          TITLE="RDCL ${UPSTREAM_TAG}+${BUILD_NUMBER}"
+          TITLE="RDCL ${UPSTREAM_TAG}"
           ASSETS=(
             "$LIBS"/RDCL-*.jar "$LIBS"/RDCL-*.exe "$LIBS"/RDCL-*.sh "$LIBS"/RDCL-*.deb
             "$LIBS"/RDCL-*.sha1 "$LIBS"/RDCL-*.sha256 "$LIBS"/RDCL-*.sha512
             "$GITHUB_WORKSPACE/RDCL-${UPSTREAM_TAG}-source.tar.gz"
           )
 
-          # tag 与 release 名与 +n 无关（始终 rdcl/<tag>），因此同一 tag 的多次构建
-          # 会命中「已存在」—— 此时覆盖资产并更新标题，而不是创建失败
+          # release 名固定为 rdcl/<tag>，因此同一 tag 的多次构建会命中「已存在」
+          # —— 此时覆盖资产与说明，而不是创建失败
           if gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
-            echo "release ${RELEASE_TAG} 已存在 —— 第 ${BUILD_NUMBER} 次构建：覆盖资产 + 更新标题"
+            echo "release ${RELEASE_TAG} 已存在 —— 覆盖资产与说明"
             gh release upload "$RELEASE_TAG" --clobber "${ASSETS[@]}"
             gh release edit "$RELEASE_TAG" \
               --title "$TITLE" \
@@ -332,10 +324,9 @@ jobs:
           jq --arg tag "$UPSTREAM_TAG" \
              --arg commit "$UPSTREAM_COMMIT" \
              --arg now "$NOW" \
-             --argjson n "$BUILD_NUMBER" \
              --arg fp "$BUILD_FINGERPRINT" \
              '.last_built_tag=$tag | .last_built_commit=$commit | .last_built_at=$now
-              | .build_count[$tag]=$n | .build_fingerprint=$fp' rdcl-state.json > rdcl-state.json.tmp
+              | .build_fingerprint=$fp' rdcl-state.json > rdcl-state.json.tmp
           mv rdcl-state.json.tmp rdcl-state.json
           cat rdcl-state.json
 
@@ -351,7 +342,7 @@ jobs:
           if git diff --cached --quiet; then
             echo "状态无变化"
           else
-            git commit -m "chore(ci): 记录 ${UPSTREAM_TAG}+${BUILD_NUMBER} 构建状态 [skip ci]"
+            git commit -m "chore(ci): 记录 ${UPSTREAM_TAG} 构建状态 [skip ci]"
             git pull --rebase origin main
             git push origin HEAD:main
           fi

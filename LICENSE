@@ -68,8 +68,8 @@ following additional terms (quoted from docs/README_zh_Hans.md of HMCL):
 RDCL complies with both:
 
   * Requirement 1 — the program is renamed "RDCL / Ray Dust Craft Launcher"
-    and its version numbers carry a distinct "-rdcl+n" suffix, e.g.
-    "3.17.0.362-rdcl+1".
+    and its version numbers carry a distinct "-rdcl" suffix, e.g.
+    "3.17.0.362-rdcl".
 
   * Requirement 2 — no copyright notice has been removed. All original
     copyright headers of the upstream sources are preserved verbatim, and

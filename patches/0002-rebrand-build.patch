@@ -1,23 +1,22 @@
 diff --git a/HMCL/build.gradle.kts b/HMCL/build.gradle.kts
-index e9dacb207..0429cb6b5 100644
+index e9dacb207..69a778a34 100644
 --- a/HMCL/build.gradle.kts
 +++ b/HMCL/build.gradle.kts
-@@ -55,6 +55,14 @@ if (buildNumber != null) {
+@@ -55,6 +55,13 @@ if (buildNumber != null) {
      }
  }
  
-+// RDCL: 版本号从「本次构建的上游 tag」派生，形如 3.17.0.362-rdcl+1（Java 式，规划 §4.2）。
++// RDCL: 版本号从「本次构建的上游 tag」派生，形如 3.17.0.362-rdcl（规划 §4.2）。
 +// 严禁改用 versionRoot + BUILD_NUMBER 拼接 —— 上游发 3.18 时会拼成 3.18.x，与 tag 对不上。
 +val rdclUpstreamTag = System.getenv("RDCL_UPSTREAM_TAG") ?: ""
 +if (rdclUpstreamTag.isNotBlank()) {
-+    val rdclBuildNumber = System.getenv("RDCL_BUILD_NUMBER") ?: "1"
-+    version = "${rdclUpstreamTag.removePrefix("v")}-rdcl+$rdclBuildNumber"
++    version = "${rdclUpstreamTag.removePrefix("v")}-rdcl"
 +}
 +
  val embedResources = configurations.register("embedResources")
  
  dependencies {
-@@ -183,6 +191,9 @@ val createPropertiesFile = tasks.register<WriteProperties>("createPropertiesFile
+@@ -183,6 +190,9 @@ val createPropertiesFile = tasks.register<WriteProperties>("createPropertiesFile
  tasks.jar {
      enabled = false
      dependsOn(tasks["shadowJar"])
@@ -27,7 +26,7 @@ index e9dacb207..0429cb6b5 100644
  }
  
  val jarPath = tasks.jar.get().archiveFile.get().asFile
-@@ -191,6 +202,8 @@ tasks.shadowJar {
+@@ -191,6 +201,8 @@ tasks.shadowJar {
      dependsOn(createPropertiesFile)
  
      archiveClassifier.set(null as String?)
